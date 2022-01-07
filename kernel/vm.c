@@ -275,10 +275,37 @@ freewalk(pagetable_t pagetable)
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
-      panic("freewalk: leaf");
+      printf("freewalk: leaf %p, %d||", pte, pte & (PTE_R|PTE_W|PTE_X));
     }
   }
   kfree((void*)pagetable);
+}
+
+void printpte(pagetable_t pagetable, int level) {
+  for (int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V) {
+      for (int j = 1; j < level; j++) {
+        printf(".. ");  
+      }
+      // printf("%d: pte %p pa %p %s%s%s\n", i, pte, PTE2PA(pte), (pte) & PTE_R ? "r" : "-", (pte) & PTE_W ? "w" : "-", (pte) & PTE_X ? "x" : "-");
+      printf("..%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+    }
+    if ((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      printpte((pagetable_t)child, level+1);
+    } else if(pte & PTE_V){
+      // printf("freewalk: leaf %p\n", pte);
+    }
+  }
+}
+
+void 
+vmprint(pagetable_t t)
+{
+  printf("page table %p\n", t);
+  printpte(t, 1);
 }
 
 // Free user memory pages,
