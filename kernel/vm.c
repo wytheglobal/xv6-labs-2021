@@ -86,6 +86,8 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
     if(*pte & PTE_V) {
+      // if pte is valid, set PTE_A status
+      // *pte = *pte | PTE_A;
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
@@ -94,6 +96,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
+  // pagetable[PX(0, va)] = pagetable[PX(0, va)] | PTE_A;
   return &pagetable[PX(0, va)];
 }
 
@@ -110,6 +113,9 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
 
   pte = walk(pagetable, va, 0);
+  // PTE_A will automatically be set 
+  // manually set here will crash usertests
+  // *pte = *pte | PTE_A; 
   if(pte == 0)
     return 0;
   if((*pte & PTE_V) == 0)
@@ -143,6 +149,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   if(size == 0)
     panic("mappages: size");
   
+  // printf("va %p$\n", va);
   a = PGROUNDDOWN(va);
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
@@ -281,6 +288,27 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+void clearptea(pagetable_t pagetable, int level) {
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V) {
+      if ((pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+        // top or middle pte
+        uint64 child = PTE2PA(pte);
+        clearptea((pagetable_t)child, level-1);
+      }
+      // clear pte_a
+      if (level == 0) {
+        pte_t *p = &pagetable[i];
+        *p = (*p) & ~(1 << 6);
+        // pte_t *p = &pte;
+        // printf("clear !!! %p, %p\n", *p, pte);
+        // pagetable[i] = pagetable[i] & (0 << 6);
+      }
+    }
+  }
+}
+
 void printpte(pagetable_t pagetable, int level) {
   for (int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
@@ -290,7 +318,9 @@ void printpte(pagetable_t pagetable, int level) {
       }
       // printf("%d: pte %p pa %p %s%s%s\n", i, pte, PTE2PA(pte), (pte) & PTE_R ? "r" : "-", (pte) & PTE_W ? "w" : "-", (pte) & PTE_X ? "x" : "-");
       printf("..%d: pte %p pa %p\n", i, pte, PTE2PA(pte));
+      // printf("..%d: pte %p [pte accessed %d] pa %p\n", i, pte, (pte & PTE_A) >> 6, PTE2PA(pte));
     }
+    // PTE_R PTE_W PTE_X flags not exist, only leaf
     if ((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0) {
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
