@@ -111,6 +111,16 @@ w_mie(uint64 x)
   asm volatile("csrw mie, %0" : : "r" (x));
 }
 
+
+// frame pointer
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
 // supervisor exception program counter, holds the
 // instruction address to which a return from
 // exception will go.

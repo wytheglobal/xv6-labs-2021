@@ -77,8 +77,21 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    // printf("%d", myproc()->pid);
+    if (p->sigamticks > 0 && p->sigaminhandle == 0) {
+      p->sigamcount++;
+      if (p->sigamcount >= p->sigamticks) {
+        // p->sigamcount = 0;
+        // save 
+        memmove(&(p->etpfm), p->trapframe, sizeof(struct trapframe));
+        p->trapframe->epc = p->sigamhandler;
+        p->sigaminhandle = 1;
+      }
+    }
+
     yield();
+  }
 
   usertrapret();
 }
