@@ -67,9 +67,46 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 15){
+    uint64 start_va = PGROUNDDOWN(r_stval());
+    if (start_va >= MAXVA) {
+      // printf("physical address reached MAXVA! pid: %d\n", p->pid);
+      p->killed = 1;
+    } else {
+      // copy content;
+      uint64 sourcepa = walkaddr(p->pagetable, start_va);
+      pte_t* pte = walk(p->pagetable, start_va, 0);
+      if ((*pte & PTE_V) && (*pte & PTE_U) && (*pte & PTE_COW)) {
+        uint64 mem = (uint64) kalloc();
+        if (mem == 0) {
+          // printf("not enough momeory! pid: %d\n", p->pid);
+          p->killed = 1;
+        } else {
+          // clear PTE_COW
+          uint flags = PTE_FLAGS(*pte);
+          flags &= (~PTE_COW);
+          flags |= PTE_W;
+          uvmunmap(p->pagetable, start_va, PGSIZE / PGSIZE, 0);
+          memmove((void *)mem, (void *)sourcepa, PGSIZE);
+
+          // decrement old pa ref count.
+          int refcount = dec_ref((void *)sourcepa);
+          if (refcount == 0) {
+            kfree((void *)sourcepa);
+          }
+          // mappages(new, i, PGSIZE, (uint64)mem, flags
+          if (mappages(p->pagetable, start_va, PGSIZE, mem, flags ) != 0) {
+            kfree((void *)mem);
+            p->killed = 1;
+          } else {
+          }
+        }
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+    printf("            process name=%s\n", p->name);
     p->killed = 1;
   }
 

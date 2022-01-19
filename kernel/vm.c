@@ -303,22 +303,36 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
+    // don't copy memory, set ready only to PTEs
+    // *pte ^= PTE_W;
+    *pte &= (~PTE_W);
+    *pte |= PTE_COW;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    if (mappages(new, i, PGSIZE, (uint64)pa, flags) != 0) {
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+    } 
+    add_ref((void *)pa);
+    // continue;
+    // pa = PTE2PA(*pte);
+    // flags = PTE_FLAGS(*pte);
+    // // allocate physical memory for child
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // // copy parent memory content to child memory
+    // memmove(mem, (char*)pa, PGSIZE);
+    // // mapping child pagetable to child memory 
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
   }
   return 0;
 
@@ -350,17 +364,51 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    if (va0 >= MAXVA) 
+      return -1;
+    pte_t* pte = walk(pagetable, va0, 0);
+    // pa0 = PTE2PA(*pte); 
+    // don't use PTE2PA since we need to check PTE_U PTE_V flags
+    // which handled automatically in walkaddr. 
     pa0 = walkaddr(pagetable, va0);
+    // normal process, no COW page
     if(pa0 == 0)
       return -1;
-    n = PGSIZE - (dstva - va0);
-    if(n > len)
-      n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+    // write to COW page
+    if (*pte & PTE_COW) {
+      // panic("copyout COW");
+      // forked process, has COW page
+      uint64 mem = (uint64) kalloc();
+      if (mem == 0) {
+        panic("copyout cow not enough momeory!");
+      } else {
+        uint flags = PTE_FLAGS(*pte);
+        flags &= (~PTE_COW);
+        flags |= PTE_W;
+        uvmunmap(pagetable, va0, PGSIZE / PGSIZE, 0);
+        memmove((void *)mem, (void *)pa0, PGSIZE);
 
-    len -= n;
-    src += n;
-    dstva = va0 + PGSIZE;
+        // decrement old pa ref count.
+        int refcount = dec_ref((void *)pa0);
+        if (refcount == 0) {
+          kfree((void *)pa0);
+        }
+        // mappages(new, i, PGSIZE, (uint64)mem, flags
+        if (mappages(pagetable, va0, PGSIZE, mem, flags ) != 0) {
+          kfree((void *)mem);
+          panic("mappages COW failed!");
+        }
+      }
+    } else {
+      n = PGSIZE - (dstva - va0);
+      if(n > len)
+        n = len;
+      memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+      len -= n;
+      src += n;
+      dstva = va0 + PGSIZE;
+    }
   }
   return 0;
 }
