@@ -8,6 +8,9 @@
 #define NBUCKET 5
 #define NKEYS 100000
 
+/* pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; */
+pthread_mutex_t mutex;
+
 struct entry {
   int key;
   int value;
@@ -48,11 +51,14 @@ void put(int key, int value)
       break;
   }
   if(e){
+    printf("update");
     // update the existing key.
     e->value = value;
   } else {
+    pthread_mutex_lock(&mutex);
     // the new is new.
     insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&mutex);
   }
 
 }
@@ -118,6 +124,7 @@ main(int argc, char *argv[])
     keys[i] = random();
   }
 
+  pthread_mutex_init(&mutex, 0);
   //
   // first the puts
   //
@@ -144,6 +151,8 @@ main(int argc, char *argv[])
     assert(pthread_join(tha[i], &value) == 0);
   }
   t1 = now();
+
+  pthread_mutex_destroy(&mutex);
 
   printf("%d gets, %.3f seconds, %.0f gets/second\n",
          NKEYS*nthread, t1 - t0, (NKEYS*nthread) / (t1 - t0));
