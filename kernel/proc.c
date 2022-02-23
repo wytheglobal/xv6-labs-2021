@@ -464,6 +464,22 @@ scheduler(void)
   }
 }
 
+static int seq = 0;
+
+
+void 
+dumpproc(void) 
+{
+  struct proc* p;
+
+  printf("    0 UNUSED, 1 USED, 2 SLEEPING, 3 RUNNABLE, 4 RUNNING, 5 ZOMBIE\n");
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if (*p->name) {
+      printf("    process name: %s status %d locked %d\n", 
+        p->name, p->state, p->lock.locked);
+    }
+  }
+}
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -487,9 +503,31 @@ sched(void)
     panic("sched interruptible");
 
   intena = mycpu()->intena;
+  seq++;
+  p->seq = seq;
+  printf("@-> sched [%s] seq:%d cpuid: %d\n", p->name, p->seq, cpuid());
+  // struct cpu *c = &cpus[id];
+  struct cpu *c0 = &cpus[0];
+  struct cpu *c1 = &cpus[1];
+  struct cpu *c2 = &cpus[2];
+  // char *name = c0->proc->name;
+  // printf("!cpu0: %s cpu1: %s cpu2:%s \n", name, name, name);
+  printf("  cpu0: %s cpu1: %s cpu2:%s \n", 
+    c0->proc ? c0->proc->name : "null", 
+    c1->proc ? c1->proc->name : "null",
+    c2->proc ? c2->proc->name : "null"
+  );
+  dumpproc();
   swtch(&p->context, &mycpu()->context);
+  printf("@<- sched [%s] seq:%d cpuid: %d\n", p->name, p->seq, cpuid());
+  printf("  cpu0: %s cpu1: %s cpu2:%s \n", 
+    c0->proc ? c0->proc->name : "null", 
+    c1->proc ? c1->proc->name : "null",
+    c2->proc ? c2->proc->name : "null"
+  );
   mycpu()->intena = intena;
 }
+
 
 // Give up the CPU for one scheduling round.
 void

@@ -181,6 +181,8 @@ thread_c(void)
 int 
 main(int argc, char *argv[]) 
 {
+  fork();
+  fork();
   a_started = b_started = c_started = 0;
   a_n = b_n = c_n = 0;
   thread_init();
