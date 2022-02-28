@@ -95,6 +95,57 @@ e1000_init(uint32 *xregs)
 int
 e1000_transmit(struct mbuf *m)
 {
+  // printf("regs[E1000_TDT] start td tail %d\n", regs[E1000_TDT]);
+  // return 0;
+  // First ask the E1000 for the TX ring index at which
+  // it's expecting the next packet, by reading the 
+  // E1000_TDT control register.
+  int index = regs[E1000_TDT];
+  // Then check if the the ring is overflowing. 
+  // If E1000_TXD_STAT_DD is not set in the descriptor 
+  // indexed by E1000_TDT, the E1000 hasn't finished 
+  // the corresponding previous transmission request, 
+  // so return an error.
+  struct tx_desc *next_tx_desc_p = &tx_ring[index];
+  if (next_tx_desc_p->status != E1000_TXD_STAT_DD) {
+    return -1;
+  }
+  // Otherwise, use mbuffree() to free the last mbuf 
+  // that was transmitted from that descriptor 
+  // (if there was one).
+  // TODO
+  if (*(tx_mbufs + index) != 0 ) {
+    mbuffree(*(tx_mbufs + index));
+  }
+
+  // Then fill in the descriptor. m->head points to 
+  // the packet's content in memory, and m->len is the
+  // packet length. Set the necessary cmd flags 
+  // (look at Section 3.3 in the E1000 manual) and 
+  // stash away a pointer to the mbuf for later 
+  // freeing.
+  // use mbuf m to construct tx_desc 
+  next_tx_desc_p->addr = (uint64) m->head;
+  next_tx_desc_p->length = m->len;
+  next_tx_desc_p->cmd = (E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP);
+
+  // *(tx_mbufs + index) = m;
+
+  tx_mbufs[index] = m;
+
+  // Finally, update the ring position by adding one
+  // to E1000_TDT modulo TX_RING_SIZE.
+  regs[E1000_TDT] = (regs[E1000_TDT] + 1 ) % TX_RING_SIZE;
+
+  // printf("now td tail: %d\n", regs[E1000_TDT]);
+  // If e1000_transmit() added the mbuf successfully 
+  // to the ring, return 0. 
+  // On failure (e.g., there is no descriptor available 
+  // to transmit the mbuf), return -1 so that the 
+  // caller knows to free the mbuf.
+
+  // printf("%p %d", next_tx_desc_p->addr, next_tx_desc_p->length);
+  // printf("%p %p", m->head, );
   //
   // Your code here.
   //
@@ -109,6 +160,32 @@ e1000_transmit(struct mbuf *m)
 static void
 e1000_recv(void)
 {
+  uint16 index = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+
+  while (rx_ring[index].status & E1000_RXD_STAT_DD)
+  {
+    struct mbuf *m = rx_mbufs[index];
+    m->len = rx_ring[index].length;
+
+    net_rx(m);
+
+    struct mbuf *new_m = mbufalloc(0);
+    rx_ring[index].addr = (uint64) new_m->head;
+    rx_ring[index].status = 0;
+    rx_mbufs[index] = new_m;
+    // regs[E1000_RDT] = index;
+    index = (index + 1) % RX_RING_SIZE;
+  }
+  index--;
+  regs[E1000_RDT] = index;
+
+  // struct rx_desc *cur_rx_desc_p = &rx_ring[index];
+  // if (!(cur_rx_desc_p->status & E1000_RXD_STAT_DD)) {
+  //   printf("returnd because of state not ready\n");
+  //   return;
+  // }
+
+  // printf("%d\n", index);
   //
   // Your code here.
   //
